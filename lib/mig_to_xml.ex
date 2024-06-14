@@ -9,15 +9,18 @@ defmodule MigToXml do
 
     defp process_ast({:defmodule, _, [{:__aliases__, _, _}, [do: {:__block__, _, ast}]]}) do
       IO.inspect(ast, label: "AST")
+
       ast
       |> Enum.flat_map(&parse_command/1)
       |> Enum.reject(&is_nil/1)
     end
 
     defp parse_command({:use, _, _}), do: []
+
     defp parse_command({:def, _, [{:change, _, nil}, [do: commands]]}) do
       parse_commands(commands)
     end
+
     defp parse_command(other) do
       IO.inspect(other, label: "Unrecognized Command")
       []
@@ -26,9 +29,12 @@ defmodule MigToXml do
     defp parse_commands({:__block__, _, commands}) do
       Enum.map(commands, &parse_single_command/1)
     end
+
     defp parse_commands(single_command), do: [parse_single_command(single_command)]
 
-    defp parse_single_command({:create, _, [{:table, _, [table_name | _]}, [do: {:__block__, _, commands}]]}) do
+    defp parse_single_command(
+           {:create, _, [{:table, _, [table_name | _]}, [do: {:__block__, _, commands}]]}
+         ) do
       IO.inspect({:create, table_name, commands}, label: "Create Command")
       %{action: :create, table: table_name, commands: Enum.map(commands, &parse_column/1)}
     end
@@ -38,7 +44,9 @@ defmodule MigToXml do
       %{action: :create_index, table: table_name, columns: columns, opts: opts}
     end
 
-    defp parse_single_command({:alter, _, [{:table, _, [table_name | _]}, [do: {:__block__, _, commands}]]}) do
+    defp parse_single_command(
+           {:alter, _, [{:table, _, [table_name | _]}, [do: {:__block__, _, commands}]]}
+         ) do
       IO.inspect({:alter, table_name, commands}, label: "Alter Command")
       %{action: :alter, table: table_name, commands: Enum.map(commands, &parse_column/1)}
     end
@@ -54,12 +62,20 @@ defmodule MigToXml do
     end
 
     defp parse_column({:add, _, [column_name, {:references, _, [ref_table, opts]}, column_opts]}) do
-      IO.inspect({:add, column_name, :references, ref_table, opts, column_opts}, label: "Add Column with References")
-      %{action: :add, column: column_name, type: {:references, ref_table, opts}, column_opts: column_opts}
+      IO.inspect({:add, column_name, :references, ref_table, opts, column_opts},
+        label: "Add Column with References"
+      )
+
+      %{
+        action: :add,
+        column: column_name,
+        type: {:references, ref_table, opts},
+        column_opts: column_opts
+      }
     end
 
     defp parse_column({:add, _, [column_name, type, column_opts]}) do
-      IO.inspect({:add, column_name, type}, label: "Add Column")
+      IO.inspect({:add, column_name, type, column_opts}, label: "Add Column")
       %{action: :add, column: column_name, type: type, column_opts: column_opts}
     end
 
@@ -67,7 +83,6 @@ defmodule MigToXml do
       IO.inspect({:add, column_name}, label: "Add Column")
       %{action: :add, column: column_name, type: type}
     end
-
 
     defp parse_column({:remove, _, [column_name]}) do
       IO.inspect({:remove, column_name}, label: "Remove Column")
@@ -85,10 +100,10 @@ defmodule MigToXml do
     end
   end
 
-
   defmodule MigrationToXML do
     def to_xml(parsed_data) do
       IO.inspect(parsed_data, label: "Parsed Data")
+
       parsed_data
       |> Enum.map(&convert_to_xml/1)
       |> Enum.join("\n")
@@ -106,6 +121,7 @@ defmodule MigToXml do
     defp convert_to_xml(%{action: :create_index, table: table_name, columns: columns, opts: opts}) do
       opts_str = opts_to_string(opts)
       columns_str = Enum.map(columns, &to_string/1) |> Enum.join(", ")
+
       """
       <create_index table="#{table_name}" columns="#{columns_str}" opts="#{opts_str}" />
       """
@@ -123,14 +139,27 @@ defmodule MigToXml do
       "<drop table=\"#{table_name}\" />"
     end
 
-    defp convert_command_to_xml(%{action: :add, column: column_name, type: {:references, ref_table, opts}, column_opts: column_opts}) do
+    defp convert_command_to_xml(%{
+           action: :add,
+           column: column_name,
+           type: {:references, ref_table, opts},
+           column_opts: column_opts
+         }) do
       opts_str = opts_to_string(opts)
       column_opts_str = opts_to_string(column_opts)
+
       "<add column=\"#{column_name}\" type=\"references\" ref_table=\"#{Atom.to_string(ref_table)}\" opts=\"#{opts_str}\" column_opts=\"#{column_opts_str}\" />"
     end
 
-    defp convert_command_to_xml(%{action: :add, column: column_name, type: type, column_opts: column_opts}) when is_atom(type) do
+    defp convert_command_to_xml(%{
+           action: :add,
+           column: column_name,
+           type: type,
+           column_opts: column_opts
+         })
+         when is_atom(type) do
       column_opts_str = opts_to_string(column_opts)
+
       "<add column=\"#{column_name}\" type=\"#{Atom.to_string(type)}\" column_opts=\"#{column_opts_str}\" />"
     end
 
@@ -161,7 +190,7 @@ defmodule MigToXml do
 
     defp opts_to_string(opts) when is_list(opts) do
       Enum.map(opts, fn
-        {k, v} -> "#{k}=#{v}"
+        {k, v} -> "#{k}=#{value_to_string(v)}"
         k when is_atom(k) -> "#{k}=true"
         other -> IO.inspect(other, label: "Unhandled opts element"); "#{other}"
       end)
@@ -174,9 +203,24 @@ defmodule MigToXml do
       IO.inspect(opts, label: "Unhandled opts structure")
       ""
     end
+
+    defp value_to_string(value) when is_tuple(value) do
+      "{}"
+    end
+
+    defp value_to_string(value) when is_map(value), do: map_to_string(value)
+    defp value_to_string(value), do: to_string(value)
+
+    defp map_to_string(map) when map == %{} do
+      "{}"
+    end
+
+    defp map_to_string(map) when is_map(map) do
+      Enum.map_join(map, ", ", fn {key, val} -> ~s{"#{key}", "#{val}"} end)
+
+    end
+
   end
-
-
 
   defmodule EctoMigrationToXML do
     def run(file_path, output_file_path) do
@@ -197,7 +241,7 @@ defmodule MigToXml do
 
   # Run the conversion
   EctoMigrationToXML.run(
-    "/home/temes/Downloads/sample_mig.exs",
-    "/home/temes/Downloads/testsample_mig.xml"
+    "/home/temes/Downloads/sample2_mig.exs",
+    "/home/temes/Downloads/testsample2_mig.xml"
   )
 end
