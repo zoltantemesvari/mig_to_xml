@@ -63,6 +63,12 @@ defmodule MigToXml do
       %{action: :add, column: column_name, type: type, column_opts: column_opts}
     end
 
+    defp parse_column({:add, _, [column_name, type]}) do
+      IO.inspect({:add, column_name}, label: "Add Column")
+      %{action: :add, column: column_name, type: type}
+    end
+
+
     defp parse_column({:remove, _, [column_name]}) do
       IO.inspect({:remove, column_name}, label: "Remove Column")
       %{action: :remove, column: column_name}
@@ -128,6 +134,10 @@ defmodule MigToXml do
       "<add column=\"#{column_name}\" type=\"#{Atom.to_string(type)}\" column_opts=\"#{column_opts_str}\" />"
     end
 
+    defp convert_command_to_xml(%{action: :add, column: column_name, type: type}) do
+      "<add column=\"#{Atom.to_string(column_name)}\" type=\"#{Atom.to_string(type)}\" />"
+    end
+
     defp convert_command_to_xml(%{action: :remove, column: column_name}) do
       "<remove column=\"#{column_name}\" />"
     end
@@ -187,7 +197,7 @@ defmodule MigToXml do
 
   # Run the conversion
   EctoMigrationToXML.run(
-    "/home/temes/CloudStation/elixir_projects/ex_poll/priv/repo/migrations/20230314194120_create_options.exs",
-    "/home/temes/Downloads/test_mig.xml"
+    "/home/temes/Downloads/sample_mig.exs",
+    "/home/temes/Downloads/testsample_mig.xml"
   )
 end
